@@ -1,0 +1,29 @@
+version: "3.3"
+
+services:
+  app:
+    build: ./server
+    volumes:
+      - .:/app
+      - ./server/ssl:/app/ssl
+      - /app/node_modules
+    restart: always
+    expose:
+      - "8000"
+    ports:
+      - "8000:8000"
+    command: npm start
+  nginx:
+    restart: always
+    image: nginx:latest
+    working_dir: /var/www/html
+    volumes:
+      - ./client/build:/var/www/html
+      - ./docker/images/nginx/default.conf:/etc/nginx/conf.d/default.conf
+      - ./server/ssl:/etc/nginx/ssl
+    expose:
+      - "443"
+      - "80"
+    ports:
+      - "443:443"
+      - "80:80"
