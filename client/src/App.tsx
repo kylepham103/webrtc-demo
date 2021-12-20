@@ -6,8 +6,9 @@ import Peer from 'simple-peer'
 const socket = io('https://dzungpt97.tk:8000')
 
 interface CallerInterface {
+    signal: any
     from: string
-    signal: string
+    to: string
 }
 
 function App() {
@@ -15,13 +16,11 @@ function App() {
     const [stream, setStream] = useState<MediaStream>()
     const [isReceivingCall, setIsReceivingCall] = useState<boolean>(false)
     const [caller, setCaller] = useState<CallerInterface>()
-    const [callAccepted, setCallAccepted] = useState(false)
-    const [callEnded, setCallEnded] = useState(false)
+    const [isCalling, setIsCalling] = useState(false)
 
     const idInputRef = useRef<any>()
     const myStreamRef = useRef<any>()
     const guestStreamRef = useRef<any>()
-    const connectionRef = useRef<any>()
 
     useEffect(() => {
         navigator.mediaDevices.getUserMedia({ video: true, audio: true }).then(stream => {
@@ -33,15 +32,20 @@ function App() {
             setMe(socket.id)
         })
 
-        socket.on('callUser', (data: CallerInterface) => {
+        socket.on('serverCallUser', (data: CallerInterface) => {
+            setIsCalling(false)
             setIsReceivingCall(true)
             setCaller(data)
         })
+
+        socket.on('serverLeaveCall', () => {
+            leaveCall()
+        })
     }, [])
 
-    const callUser = () => {
+    const clientCallUser = () => {
         const idToCall = idInputRef.current.state.value
-        if (!idToCall) return
+        if (!idToCall || !me || idToCall === me) return
 
         const peer = new Peer({
             initiator: true,
@@ -49,71 +53,86 @@ function App() {
             stream: stream,
         })
         peer.on('signal', data => {
-            socket.emit('callUser', {
-                userToCall: idToCall,
-                signalData: data,
+            const dataToCall: CallerInterface = {
+                signal: data,
                 from: me,
-            })
+                to: idToCall,
+            }
+            socket.emit('clientCallUser', dataToCall)
+            setCaller(dataToCall)
         })
         peer.on('stream', guestStream => {
             guestStreamRef.current.srcObject = guestStream
         })
-        socket.on('callAccepted', signal => {
-            setCallAccepted(true)
+        socket.on('serverAnswerCall', signal => {
+            answerCall()
             peer.signal(signal)
         })
-
-        connectionRef.current = peer
     }
 
     const answerCall = () => {
-        if (!caller) {
-            return
-        }
+        setIsCalling(true)
+        setIsReceivingCall(false)
+    }
 
-        setCallAccepted(true)
+    const clientAnswerCall = () => {
+        if (!caller) return
+
+        answerCall()
         const peer = new Peer({
             initiator: false,
             trickle: false,
             stream: stream,
         })
         peer.on('signal', data => {
-            socket.emit('answerCall', { signal: data, to: caller.from })
+            socket.emit('clientAnswerCall', { signal: data, from: me, to: caller.from })
         })
         peer.on('stream', guestStream => {
             guestStreamRef.current.srcObject = guestStream
         })
 
         peer.signal(caller.signal)
-        connectionRef.current = peer
     }
 
     const leaveCall = () => {
-        setCallEnded(true)
-        connectionRef.current.destroy()
+        setIsCalling(false)
+        setIsReceivingCall(false)
+        setCaller(undefined)
+        socket.off('serverAnswerCall')
+    }
+
+    const clientLeaveCall = () => {
+        leaveCall()
+        if (!caller) return
+        socket.emit('clientLeaveCall', { caller })
     }
 
     return (
         <div style={{ textAlign: 'center', paddingTop: 50 }}>
-            {'Hello, ' + me}
+            {me && 'Hello, ' + me}
 
             <div>
-                {isReceivingCall && !callAccepted ? (
+                {isReceivingCall && !isCalling ? (
                     <div className="caller">
                         <h1>{caller ? caller.from : ''} is calling...</h1>
-                        <Button type="primary" onClick={() => answerCall()}>
+                        <Button type="primary" onClick={() => clientAnswerCall()}>
                             Answer
                         </Button>
                     </div>
                 ) : (
                     <Input.Group compact style={{ margin: 20 }}>
-                        <Input style={{ width: 300 }} ref={idInputRef} placeholder={'ID to Call'} />
-                        {callAccepted && !callEnded ? (
-                            <Button type="primary" danger onClick={() => leaveCall()}>
+                        <Input
+                            style={{ width: 300 }}
+                            ref={idInputRef}
+                            placeholder={'ID to Call'}
+                            disabled={isCalling}
+                        />
+                        {isCalling ? (
+                            <Button type="primary" danger onClick={() => clientLeaveCall()}>
                                 End Call
                             </Button>
                         ) : (
-                            <Button type="primary" onClick={() => callUser()}>
+                            <Button type="primary" onClick={() => clientCallUser()}>
                                 Call
                             </Button>
                         )}
@@ -125,9 +144,7 @@ function App() {
                 {stream && <video playsInline muted ref={myStreamRef} autoPlay style={{ width: 300 }} />}
             </div>
             <div className="video">
-                {callAccepted && !callEnded ? (
-                    <video playsInline ref={guestStreamRef} autoPlay style={{ width: 300 }} />
-                ) : null}
+                {isCalling ? <video playsInline ref={guestStreamRef} autoPlay style={{ width: 300 }} /> : null}
             </div>
         </div>
     )

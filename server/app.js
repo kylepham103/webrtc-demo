@@ -24,15 +24,20 @@ io.on('connection', socket => {
         socket.broadcast.emit('callEnded')
     })
 
-    socket.on('callUser', data => {
-        io.to(data.userToCall).emit('callUser', {
-            signal: data.signalData,
-            from: data.from,
-        })
+    socket.on('clientCallUser', data => {
+        console.log(data.from  + ' calling to ' + data.to)
+        io.to(data.to).emit('serverCallUser', data)
     })
 
-    socket.on('answerCall', data => {
-        io.to(data.to).emit('callAccepted', data.signal)
+    socket.on('clientAnswerCall', data => {
+        console.log(data.from  + ' answer call from ' + data.to)
+        io.to(data.to).emit('serverAnswerCall', data.signal)
+    })
+
+    socket.on('clientLeaveCall', data => {
+        console.log(`Leave call between ${data.caller.from} and ${data.caller.to}`)
+        io.to(data.caller.from).emit('serverLeaveCall')
+        io.to(data.caller.to).emit('serverLeaveCall')
     })
 })
 
